@@ -1,0 +1,2762 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>复古肌理图片着色器 — Vintage Texture Colorizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800;9..144,900&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ===== Design Tokens ===== */
+:root{
+  --bg:#ede8df;
+  --paper:#f7f3eb;
+  --paper-2:#efeae0;
+  --ink:#1c1c1a;
+  --ink-soft:#4a4642;
+  --ink-muted:#8a8378;
+  --line:#d4ccbe;
+  --line-soft:#e3ddd0;
+  --accent:#c84b31;
+  --accent-dark:#a23a24;
+  --blue:#2b5cb0;
+  --blue-light:#e8f0ff;
+  --green:#4a7c59;
+  --shadow:0 1px 3px rgba(28,28,26,.08);
+  --shadow-md:0 4px 16px rgba(28,28,26,.10);
+  --radius:6px;
+  --radius-sm:4px;
+  --radius-xs:2px;
+  --sidebar-w:340px;
+  --transition:.18s cubic-bezier(.4,0,.2,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{
+  font-family:'Noto Sans SC',system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  font-size:13px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ===== Grain Overlay ===== */
+body::after{
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.11 0 0 0 0 0.11 0 0 0 0 0.10 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events:none;z-index:9999;mix-blend-mode:multiply;
+}
+
+/* ===== Layout ===== */
+.app{
+  display:flex;
+  height:100vh;
+  width:100vw;
+}
+
+/* ===== Sidebar ===== */
+.sidebar{
+  width:var(--sidebar-w);
+  flex-shrink:0;
+  background:var(--paper);
+  border-right:1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  overflow-y:auto;
+  overflow-x:hidden;
+}
+.sidebar::-webkit-scrollbar{width:6px}
+.sidebar::-webkit-scrollbar-track{background:transparent}
+.sidebar::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+
+/* Sidebar Header */
+.sb-header{
+  padding:20px 20px 16px;
+  border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--paper);z-index:10;
+}
+.sb-header h1{
+  font-family:'Fraunces',serif;
+  font-size:19px;
+  font-weight:800;
+  font-variation-settings:'opsz' 144;
+  letter-spacing:-.3px;
+  line-height:1.2;
+}
+.sb-header .sub{
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  color:var(--ink-muted);
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  margin-top:4px;
+}
+
+/* Upload Zone */
+.upload-zone{
+  margin:16px 20px;
+  border:2px dashed var(--line);
+  border-radius:var(--radius);
+  padding:24px 16px;
+  text-align:center;
+  cursor:pointer;
+  transition:var(--transition);
+  background:var(--paper-2);
+}
+.upload-zone:hover,.upload-zone.dragover{
+  border-color:var(--accent);
+  background:#fbf6ee;
+}
+.upload-zone .icon{
+  font-size:28px;
+  color:var(--ink-muted);
+  margin-bottom:6px;
+}
+.upload-zone .label{
+  font-size:12px;
+  color:var(--ink-soft);
+  font-weight:500;
+}
+
+/* File Info */
+.file-info{
+  margin:0 20px 12px;
+  padding:8px 12px;
+  background:var(--paper-2);
+  border-radius:var(--radius-xs);
+  border-left:3px solid var(--accent);
+  font-size:11px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.file-thumb{
+  width:48px;
+  height:48px;
+  border-radius:6px;
+  object-fit:cover;
+  flex-shrink:0;
+  border:1px solid var(--line);
+  background:var(--paper);
+}
+.file-info .file-text{
+  flex:1;
+  min-width:0;
+}
+.file-info .fname{
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  color:var(--ink-soft);
+  word-break:break-all;
+}
+.file-info .fsize{
+  color:var(--ink-muted);
+  font-size:10px;
+  margin-top:2px;
+}
+
+/* Status Bar */
+.status-bar{
+  margin:0 20px 12px;
+  padding:6px 12px;
+  border-radius:var(--radius-xs);
+  font-size:11px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  background:var(--blue-light);
+  color:var(--blue);
+}
+.status-bar.processing{
+  background:#fff4e6;
+  color:#b87333;
+}
+.status-dot{
+  width:8px;height:8px;
+  border-radius:50%;
+  background:var(--blue);
+  flex-shrink:0;
+}
+.status-bar.processing .status-dot{
+  background:#e8943a;
+  animation:pulse 1s infinite;
+}
+@keyframes pulse{
+  0%,100%{opacity:1}
+  50%{opacity:.4}
+}
+
+/* Panel System */
+.panel{
+  border-bottom:1px solid var(--line-soft);
+}
+.panel-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px 20px;
+  cursor:pointer;
+  user-select:none;
+  transition:var(--transition);
+}
+.panel-head:hover{background:var(--paper-2)}
+.panel-head .ph-title{
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:.3px;
+}
+.panel-head .ph-toggle{
+  font-size:10px;
+  color:var(--ink-muted);
+  transition:transform .2s;
+}
+.panel.collapsed .ph-toggle{transform:rotate(-90deg)}
+.panel-body{
+  padding:0 20px 16px;
+  overflow:hidden;
+  transition:max-height .25s ease,opacity .2s;
+  max-height:800px;
+  opacity:1;
+}
+.panel.collapsed .panel-body{
+  max-height:0;
+  padding-top:0;
+  padding-bottom:0;
+  opacity:0;
+}
+
+/* Control Rows */
+.ctrl{
+  margin-bottom:12px;
+}
+.ctrl:last-child{margin-bottom:0}
+.ctrl-label{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:5px;
+}
+.ctrl-label .cl-name{
+  font-size:11px;
+  font-weight:500;
+  color:var(--ink-soft);
+}
+.ctrl-label .cl-val{
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  color:var(--ink);
+  background:var(--paper-2);
+  padding:1px 6px;
+  border-radius:var(--radius-xs);
+  border:1px solid var(--line-soft);
+}
+
+/* Slider */
+.slider{
+  -webkit-appearance:none;
+  appearance:none;
+  width:100%;
+  height:4px;
+  background:var(--line);
+  border-radius:2px;
+  outline:none;
+  cursor:pointer;
+}
+.slider::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:14px;height:14px;
+  border-radius:50%;
+  background:var(--blue);
+  cursor:pointer;
+  border:2px solid white;
+  box-shadow:0 1px 3px rgba(0,0,0,.2);
+  transition:transform .12s;
+}
+.slider::-webkit-slider-thumb:hover{transform:scale(1.15)}
+.slider::-moz-range-thumb{
+  width:14px;height:14px;
+  border-radius:50%;
+  background:var(--blue);
+  cursor:pointer;
+  border:2px solid white;
+  box-shadow:0 1px 3px rgba(0,0,0,.2);
+}
+
+/* Dropdown / Select */
+.select{
+  width:100%;
+  padding:5px 8px;
+  border:1px solid var(--line);
+  border-radius:var(--radius-xs);
+  background:var(--paper);
+  font-size:11px;
+  color:var(--ink);
+  cursor:pointer;
+  font-family:inherit;
+  outline:none;
+  transition:var(--transition);
+}
+.select:hover{border-color:var(--ink-muted)}
+.select:focus{border-color:var(--blue)}
+
+/* Checkbox */
+.check-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  padding:2px 0;
+}
+.check-row input[type=checkbox]{
+  -webkit-appearance:none;
+  appearance:none;
+  width:14px;height:14px;
+  border:1.5px solid var(--line);
+  border-radius:2px;
+  cursor:pointer;
+  position:relative;
+  background:var(--paper);
+  transition:var(--transition);
+}
+.check-row input[type=checkbox]:checked{
+  background:var(--blue);
+  border-color:var(--blue);
+}
+.check-row input[type=checkbox]:checked::after{
+  content:'';
+  position:absolute;
+  left:3px;top:0;
+  width:4px;height:8px;
+  border:solid white;
+  border-width:0 2px 2px 0;
+  transform:rotate(45deg);
+}
+.check-row .cr-label{
+  font-size:11px;
+  color:var(--ink-soft);
+}
+
+/* Quality Segmented */
+.seg-group{
+  display:flex;
+  gap:0;
+  border:1px solid var(--line);
+  border-radius:var(--radius-xs);
+  overflow:hidden;
+}
+.seg-btn{
+  flex:1;
+  padding:4px 6px;
+  border:none;
+  background:var(--paper);
+  font-size:10px;
+  color:var(--ink-soft);
+  cursor:pointer;
+  transition:var(--transition);
+  font-family:inherit;
+  border-right:1px solid var(--line);
+}
+.seg-btn:last-child{border-right:none}
+.seg-btn.active{
+  background:var(--blue);
+  color:white;
+}
+.seg-btn:hover:not(.active){background:var(--paper-2)}
+
+/* Color Swatches */
+.swatch-grid{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-bottom:8px;
+}
+.swatch{
+  width:28px;height:28px;
+  border-radius:var(--radius-xs);
+  border:2px solid var(--line);
+  cursor:pointer;
+  position:relative;
+  transition:var(--transition);
+  overflow:hidden;
+}
+.swatch:hover{border-color:var(--ink-muted);transform:scale(1.05)}
+.swatch .sw-num{
+  position:absolute;
+  top:1px;left:3px;
+  font-size:9px;
+  font-weight:700;
+  font-family:'JetBrains Mono',monospace;
+  color:rgba(255,255,255,.8);
+  text-shadow:0 1px 2px rgba(0,0,0,.5);
+  pointer-events:none;
+}
+.swatch input[type=color]{
+  position:absolute;
+  inset:-2px;
+  width:calc(100% + 4px);
+  height:calc(100% + 4px);
+  border:none;
+  cursor:pointer;
+  opacity:0;
+}
+
+/* Color Picker Inline */
+.color-pick{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.color-pick .cp-swatch{
+  width:24px;height:24px;
+  border-radius:var(--radius-xs);
+  border:1.5px solid var(--line);
+  position:relative;
+  overflow:hidden;
+}
+.color-pick .cp-swatch input[type=color]{
+  position:absolute;
+  inset:-2px;
+  width:calc(100% + 4px);
+  height:calc(100% + 4px);
+  border:none;
+  cursor:pointer;
+  opacity:0;
+}
+.color-pick .cp-label{
+  font-size:11px;
+  color:var(--ink-soft);
+}
+
+/* Buttons */
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:7px 14px;
+  border:none;
+  border-radius:var(--radius-xs);
+  font-size:11px;
+  font-weight:500;
+  font-family:inherit;
+  cursor:pointer;
+  transition:var(--transition);
+  text-decoration:none;
+  white-space:nowrap;
+}
+.btn-primary{
+  background:var(--ink);
+  color:var(--paper);
+}
+.btn-primary:hover{background:#000;transform:translateY(-1px)}
+.btn-accent{
+  background:var(--accent);
+  color:white;
+}
+.btn-accent:hover{background:var(--accent-dark)}
+
+/* ===== Welcome Modal ===== */
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(28,28,26,0.55);
+  backdrop-filter:blur(4px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.3s ease;
+}
+.modal-overlay.visible{
+  opacity:1;
+  pointer-events:auto;
+}
+.modal-card{
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.25);
+  max-width:480px;
+  width:90%;
+  max-height:85vh;
+  overflow-y:auto;
+  padding:32px 28px 24px;
+  transform:translateY(20px) scale(0.96);
+  transition:transform 0.3s ease;
+}
+.modal-overlay.visible .modal-card{
+  transform:translateY(0) scale(1);
+}
+.modal-card h2{
+  font-family:'Fraunces',serif;
+  font-weight:900;
+  font-size:22px;
+  margin:0 0 4px;
+  color:var(--ink);
+}
+.modal-card .modal-sub{
+  font-size:12px;
+  color:var(--ink-muted);
+  margin-bottom:20px;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+}
+.modal-section{
+  margin-bottom:18px;
+}
+.modal-section h3{
+  font-size:13px;
+  font-weight:600;
+  color:var(--ink);
+  margin:0 0 8px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.modal-section h3::before{
+  content:'';
+  width:3px;
+  height:14px;
+  background:var(--accent);
+  border-radius:2px;
+}
+.modal-section p,.modal-section li{
+  font-size:13px;
+  line-height:1.65;
+  color:var(--ink-soft);
+  margin:0;
+}
+.modal-section ul{
+  margin:0;
+  padding-left:16px;
+}
+.modal-section li{
+  margin-bottom:4px;
+}
+.modal-tip{
+  background:var(--paper-2);
+  border-left:3px solid var(--accent);
+  padding:10px 14px;
+  border-radius:0 8px 8px 0;
+  font-size:12.5px;
+  line-height:1.6;
+  color:var(--ink-soft);
+}
+.modal-footer{
+  margin-top:22px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.modal-footer .btn{
+  flex:1;
+}
+.modal-dont-show{
+  font-size:11px;
+  color:var(--ink-muted);
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.modal-dont-show input{
+  cursor:pointer;
+}
+
+/* ===== Help Modal ===== */
+.help-modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(28,28,26,0.55);
+  backdrop-filter:blur(4px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.3s ease;
+}
+.help-modal-overlay.visible{
+  opacity:1;
+  pointer-events:auto;
+}
+.help-modal-overlay .modal-card{
+  max-width:440px;
+}
+.btn-outline{
+  background:var(--paper);
+  color:var(--ink);
+  border:1px solid var(--line);
+}
+.btn-outline:hover{border-color:var(--ink-muted);background:var(--paper-2)}
+.btn-sm{padding:5px 10px;font-size:10px}
+.btn-block{width:100%}
+
+/* Export Section */
+.export-section{
+  padding:16px 20px;
+  border-top:1px solid var(--line);
+  background:var(--paper-2);
+}
+.export-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+  margin-bottom:8px;
+}
+.export-grid .btn{font-size:10px;padding:6px}
+
+/* ===== Canvas Area ===== */
+.canvas-area{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:32px;
+  position:relative;
+  background:
+    radial-gradient(circle at 30% 20%,rgba(200,75,49,.04),transparent 50%),
+    radial-gradient(circle at 70% 80%,rgba(43,92,176,.03),transparent 50%),
+    var(--bg);
+  overflow:hidden;
+}
+
+/* Canvas Wrapper */
+.canvas-wrapper{
+  position:relative;
+  max-width:100%;
+  max-height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.canvas-frame{
+  position:relative;
+  background:white;
+  box-shadow:
+    0 1px 4px rgba(0,0,0,.08),
+    0 10px 40px rgba(0,0,0,.12),
+    0 30px 80px rgba(0,0,0,.06);
+  border-radius:2px;
+}
+#mainCanvas{
+  display:block;
+  max-width:100%;
+  max-height:calc(100vh - 120px);
+  border-radius:2px;
+}
+
+/* Empty State */
+.empty-state{
+  text-align:center;
+  color:var(--ink-muted);
+}
+.empty-state .es-icon{
+  font-family:'Fraunces',serif;
+  font-size:64px;
+  font-weight:900;
+  color:var(--line);
+  margin-bottom:8px;
+  line-height:1;
+}
+.empty-state .es-title{
+  font-family:'Fraunces',serif;
+  font-size:22px;
+  font-weight:600;
+  color:var(--ink-soft);
+  margin-bottom:4px;
+}
+.empty-state .es-desc{
+  font-size:12px;
+  color:var(--ink-muted);
+  max-width:320px;
+}
+
+/* Canvas Info Badge */
+.canvas-info{
+  position:absolute;
+  bottom:8px;
+  right:8px;
+  background:rgba(28,28,26,.75);
+  color:rgba(255,255,255,.9);
+  font-family:'JetBrains Mono',monospace;
+  font-size:9px;
+  padding:3px 8px;
+  border-radius:2px;
+  pointer-events:none;
+  backdrop-filter:blur(4px);
+}
+
+/* Peek Original Button */
+.peek-btn{
+  position:absolute;
+  top:10px;
+  left:10px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 12px;
+  border:1px solid var(--line);
+  border-radius:var(--radius-xs);
+  background:rgba(28,28,26,.78);
+  color:rgba(255,255,255,.9);
+  font-size:11px;
+  font-weight:500;
+  font-family:inherit;
+  cursor:pointer;
+  backdrop-filter:blur(8px);
+  user-select:none;
+  z-index:6;
+  transition:background .15s,transform .1s;
+}
+.peek-btn:hover{
+  background:rgba(28,28,26,.9);
+}
+.peek-btn:active,.peek-btn.active{
+  background:var(--accent);
+  transform:scale(.96);
+}
+.peek-btn svg{
+  flex-shrink:0;
+}
+
+/* Render Timer */
+.render-timer{
+  position:absolute;
+  top:16px;
+  right:20px;
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:var(--radius-xs);
+  padding:4px 10px;
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  color:var(--ink-soft);
+  box-shadow:var(--shadow);
+  display:flex;
+  align-items:center;
+  gap:6px;
+  z-index:5;
+}
+.render-timer .rt-dot{
+  width:6px;height:6px;
+  border-radius:50%;
+  background:var(--green);
+}
+
+/* Responsive */
+@media(max-width:900px){
+  :root{--sidebar-w:300px}
+  .canvas-area{padding:16px}
+}
+@media(max-width:680px){
+  .app{flex-direction:column}
+  .sidebar{width:100%;height:50vh;border-right:none;border-bottom:1px solid var(--line)}
+  .canvas-area{height:50vh;padding:12px}
+}
+
+/* Loading overlay */
+.loading-overlay{
+  position:absolute;
+  inset:0;
+  background:rgba(247,243,235,.7);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:20;
+  backdrop-filter:blur(2px);
+}
+.loading-overlay .spinner{
+  width:32px;height:32px;
+  border:3px solid var(--line);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ===== Welcome Modal ===== -->
+<div class="modal-overlay" id="welcomeModal">
+  <div class="modal-card">
+    <h2>复古肌理图片着色器</h2>
+    <div class="modal-sub">VINTAGE TEXTURE COLORIZER</div>
+
+    <div class="modal-section">
+      <h3>最佳实践</h3>
+      <p>使用<strong>纯色或简洁背景的 PNG 图片</strong>效果最佳。背景越干净，分区和轮廓提取越精准。</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>快速上手</h3>
+      <ul>
+        <li>上传图片或点击「载入示例」</li>
+        <li>调整「分区数量」控制色块化程度</li>
+        <li>用「轮廓粗细」调节黑色线条宽度</li>
+        <li>在「纸张参数」中调节颗粒、套色偏移等复古效果</li>
+        <li>点击「随机颜色」探索不同配色</li>
+        <li>选择导出倍率，保存高清 PNG</li>
+      </ul>
+    </div>
+
+    <div class="modal-section">
+      <h3>渐变背景处理</h3>
+      <p>如果图片背景有渐变导致分区混乱，可尝试：</p>
+      <ul>
+        <li>调高「保边平滑」减少渐变碎屑</li>
+        <li>调高「碎片清理」合并小色块</li>
+        <li>启用「背景标记画笔」手动标记背景区域</li>
+      </ul>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-tip">
+        <strong>提示：</strong>分区参数（数量/阈值/平滑/保边/碎片）修改后需要重新分区，肌理参数可实时调整。
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <label class="modal-dont-show">
+        <input type="checkbox" id="dontShowAgain"> 不再显示
+      </label>
+      <button class="btn btn-accent" onclick="closeWelcome()">开始使用</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Help Modal ===== -->
+<div class="modal-overlay help-modal-overlay" id="helpModal">
+  <div class="modal-card">
+    <h2>使用说明</h2>
+    <div class="modal-sub">HOW TO USE</div>
+
+    <div class="modal-section">
+      <h3>基本流程</h3>
+      <ul>
+        <li>上传图片或点击「载入示例」</li>
+        <li>调整「分区数量」控制色块化程度</li>
+        <li>用「轮廓粗细」调节黑色线条宽度</li>
+        <li>在「纸张参数」中调节颗粒、套色偏移等复古效果</li>
+        <li>点击「随机颜色」探索不同配色</li>
+        <li>选择导出倍率，保存高清PNG</li>
+      </ul>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-tip">
+        <strong>提示：</strong>分区参数（数量/阈值/平滑/闭合边缘）修改后需要重新分区，肌理参数可实时调整。
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-accent" onclick="closeHelp()">知道了</button>
+    </div>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- ===== Sidebar ===== -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sb-header">
+      <h1>复古肌理图片着色器</h1>
+      <div class="sub">by yoyoxuxu</div>
+    </div>
+
+    <!-- Upload -->
+    <div class="upload-zone" id="uploadZone">
+      <div class="icon">⬆</div>
+      <div class="label">上传或拖拽图片</div>
+      <input type="file" id="fileInput" accept="image/*" style="display:none">
+    </div>
+
+    <div class="file-info" id="fileInfo" style="display:none">
+      <img class="file-thumb" id="fileThumb" style="display:none">
+      <div class="file-text">
+        <div class="fname" id="fileName"></div>
+        <div class="fsize" id="fileSize"></div>
+      </div>
+    </div>
+
+    <div class="status-bar" id="statusBar" style="display:none">
+      <div class="status-dot"></div>
+      <span id="statusText">处理完成，颜色和肌理参数会实时重绘</span>
+    </div>
+
+    <!-- Panel: 分区生成 -->
+    <div class="panel" id="panelZone">
+      <div class="panel-head" onclick="togglePanel('panelZone')">
+        <span class="ph-title">分区生成</span>
+        <span class="ph-toggle">▾</span>
+      </div>
+      <div class="panel-body">
+        <div class="ctrl">
+          <div class="ctrl-label"><span class="cl-name">渲染质量</span></div>
+          <div class="seg-group" id="qualityGroup">
+            <button class="seg-btn active" data-q="0" onclick="setQuality(0)">默认</button>
+            <button class="seg-btn" data-q="1" onclick="setQuality(1)">高</button>
+            <button class="seg-btn" data-q="2" onclick="setQuality(2)">更高</button>
+            <button class="seg-btn" data-q="3" onclick="setQuality(3)">最高</button>
+          </div>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">图片缩放</span>
+            <span class="cl-val" id="valScale">100%</span>
+          </div>
+          <input type="range" class="slider" id="sldScale" min="20" max="100" value="100" step="5">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">调色板预设</span>
+          </div>
+          <select class="select" id="selPreset" onchange="onPresetChange(this.value)">
+            <option value="custom">自定义</option>
+            <option value="bright">亮彩默认</option>
+            <option value="vintage">复古色调</option>
+            <option value="mono">黑白灰</option>
+            <option value="warm">暖色调</option>
+            <option value="cool">冷色调</option>
+            <option value="earth">大地色</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">分区数量</span>
+            <span class="cl-val" id="valZones">4</span>
+          </div>
+          <input type="range" class="slider" id="sldZones" min="2" max="8" value="4" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">阈值</span>
+            <span class="cl-val" id="valThreshold">0</span>
+          </div>
+          <input type="range" class="slider" id="sldThreshold" min="0" max="50" value="0" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">对比度</span>
+            <span class="cl-val" id="valContrast">1.0x</span>
+          </div>
+          <input type="range" class="slider" id="sldContrast" min="50" max="200" value="100" step="5">
+        </div>
+        <div class="ctrl">
+          <label class="check-row">
+            <input type="checkbox" id="chkClosedEdge">
+            <span class="cr-label">识别闭合边缘</span>
+          </label>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">区域平滑</span>
+            <span class="cl-val" id="valSmooth">7</span>
+          </div>
+          <input type="range" class="slider" id="sldSmooth" min="0" max="15" value="7" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">轮廓粗细</span>
+            <span class="cl-val" id="valOutline">5</span>
+          </div>
+          <input type="range" class="slider" id="sldOutline" min="0" max="12" value="5" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">保边平滑</span>
+            <span class="cl-val" id="valEdgeSmooth">0</span>
+          </div>
+          <input type="range" class="slider" id="sldEdgeSmooth" min="0" max="100" value="0" step="5">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">碎片清理</span>
+            <span class="cl-val" id="valDebrisClean">15</span>
+          </div>
+          <input type="range" class="slider" id="sldDebrisClean" min="0" max="100" value="15" step="5">
+        </div>
+        <button class="btn btn-primary btn-block" onclick="resegment()">重新分区</button>
+      </div>
+    </div>
+
+    <!-- Panel: 背景控制 -->
+    <div class="panel" id="panelBg">
+      <div class="panel-head" onclick="togglePanel('panelBg')">
+        <span class="ph-title">背景控制</span>
+        <span class="ph-toggle">▾</span>
+      </div>
+      <div class="panel-body">
+        <div class="ctrl">
+          <div class="ctrl-label"><span class="cl-name">背景模式</span></div>
+          <select class="select" id="selBgMode" onchange="onParamChange()">
+            <option value="participate">参与分区</option>
+            <option value="exclude">不参与分区</option>
+            <option value="white">纯白背景</option>
+            <option value="transparent">透明背景</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label class="check-row">
+            <input type="checkbox" id="chkBrush" onchange="toggleBrush(this.checked)">
+            <span class="cr-label">启用背景标记画笔</span>
+          </label>
+        </div>
+        <div id="brushControls" style="display:none">
+          <div class="ctrl">
+            <div class="ctrl-label">
+              <span class="cl-name">笔刷大小</span>
+              <span class="cl-val" id="valBrushSize">30</span>
+            </div>
+            <input type="range" class="slider" id="sldBrushSize" min="5" max="80" value="30" step="1">
+          </div>
+          <div class="ctrl">
+            <button class="btn btn-outline btn-block btn-sm" onclick="clearBgMask()">清除标记</button>
+          </div>
+          <div style="font-size:10px;color:var(--ink-muted);line-height:1.5;padding:4px 0">
+            在画布上涂抹标记背景区域，标记后点击「重新分区」生效
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: 色彩控制 -->
+    <div class="panel" id="panelColor">
+      <div class="panel-head" onclick="togglePanel('panelColor')">
+        <span class="ph-title">色彩控制</span>
+        <span class="ph-toggle">▾</span>
+      </div>
+      <div class="panel-body">
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">颜色数量</span>
+            <span class="cl-val" id="valColorCount">4</span>
+          </div>
+          <input type="range" class="slider" id="sldColorCount" min="2" max="8" value="4" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label"><span class="cl-name">分区色块</span></div>
+          <div class="swatch-grid" id="swatchGrid"></div>
+        </div>
+        <div class="ctrl">
+          <button class="btn btn-outline btn-block btn-sm" onclick="randomColors()">🎲 随机颜色</button>
+        </div>
+        <div class="ctrl">
+          <div class="color-pick">
+            <div class="cp-swatch" style="background:#1c1c1a">
+              <input type="color" id="clrOutline" value="#1c1c1a" onchange="onParamChange()">
+            </div>
+            <span class="cp-label">轮廓颜色</span>
+          </div>
+        </div>
+        <div class="ctrl">
+          <div class="color-pick">
+            <div class="cp-swatch" style="background:#1c1c1a">
+              <input type="color" id="clrShadow" value="#1c1c1a" onchange="onParamChange()">
+            </div>
+            <span class="cp-label">暗部颜色</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: 纸张参数 -->
+    <div class="panel" id="panelPaper">
+      <div class="panel-head" onclick="togglePanel('panelPaper')">
+        <span class="ph-title">纸张参数设置</span>
+        <span class="ph-toggle">▾</span>
+      </div>
+      <div class="panel-body">
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">颗粒密度</span>
+            <span class="cl-val" id="valGrainD">0</span>
+          </div>
+          <input type="range" class="slider" id="sldGrainD" min="0" max="100" value="0" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">分区噪点</span>
+            <span class="cl-val" id="valNoise">1</span>
+          </div>
+          <input type="range" class="slider" id="sldNoise" min="0" max="50" value="1" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">纸张明暗</span>
+            <span class="cl-val" id="valPaperB">0</span>
+          </div>
+          <input type="range" class="slider" id="sldPaperB" min="-50" max="50" value="0" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">颗粒尺寸</span>
+            <span class="cl-val" id="valGrainS">2.6</span>
+          </div>
+          <input type="range" class="slider" id="sldGrainS" min="5" max="80" value="26" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">套色偏移</span>
+            <span class="cl-val" id="valRegOff">3.5</span>
+          </div>
+          <input type="range" class="slider" id="sldRegOff" min="0" max="100" value="35" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">轮廓褪色</span>
+            <span class="cl-val" id="valFade">0.18</span>
+          </div>
+          <input type="range" class="slider" id="sldFade" min="0" max="100" value="18" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">轮廓混色</span>
+            <span class="cl-val" id="valMix">0</span>
+          </div>
+          <input type="range" class="slider" id="sldMix" min="0" max="100" value="0" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">颗粒覆盖</span>
+            <span class="cl-val" id="valCov">0.18</span>
+          </div>
+          <input type="range" class="slider" id="sldCov" min="0" max="100" value="18" step="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-label">
+            <span class="cl-name">漏墨破损</span>
+            <span class="cl-val" id="valInk">0</span>
+          </div>
+          <input type="range" class="slider" id="sldInk" min="0" max="100" value="0" step="1">
+        </div>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div class="export-section">
+      <div class="export-grid">
+        <button class="btn btn-outline" onclick="exportPNG(1)">导出 PNG</button>
+        <button class="btn btn-outline" onclick="exportPNG(2)">导出 PNG 2x</button>
+        <button class="btn btn-outline" onclick="exportPNG(4)">导出 PNG 4x</button>
+        <button class="btn btn-outline" onclick="loadExample()">载入示例</button>
+      </div>
+      <button class="btn btn-accent btn-block btn-sm" onclick="showHelp()">使用说明</button>
+    </div>
+
+  </aside>
+
+  <!-- ===== Canvas Area ===== -->
+  <main class="canvas-area" id="canvasArea">
+    <div class="render-timer" id="renderTimer" style="display:none">
+      <div class="rt-dot"></div>
+      <span id="timerText">0 ms</span>
+    </div>
+    <div class="canvas-wrapper" id="canvasWrapper">
+      <div class="empty-state" id="emptyState">
+        <div class="es-icon">V</div>
+        <div class="es-title">复古肌理图片着色器</div>
+        <div class="es-desc">上传一张图片，将其转化为具有复古印刷美学的肌理插画。支持分区色块化、粗轮廓线、纸张颗粒、套色偏移等效果。</div>
+      </div>
+      <div class="canvas-frame" id="canvasFrame" style="display:none">
+        <canvas id="mainCanvas"></canvas>
+        <div class="canvas-info" id="canvasInfo"></div>
+        <button class="peek-btn" id="peekBtn" title="按住查看原图">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>按住看原图</span>
+        </button>
+      </div>
+    </div>
+    <div class="loading-overlay" id="loadingOverlay" style="display:none">
+      <div class="spinner"></div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+// ===================================================================
+// 复古肌理图片着色器 — 核心逻辑
+// ===================================================================
+
+// ===== State =====
+const state = {
+  sourceImage: null,       // 原始图片 Image 对象
+  sourceCanvas: null,      // 原始图片的离屏 Canvas
+  sourceData: null,        // 原始 ImageData
+  zoneMap: null,           // 分区映射表 (每个像素的分区索引)
+  zoneColors: [],          // 各分区的代表色
+  palette: ['#4a7c59','#e8e2d5','#9a948a','#3a3a38'], // 用户调色板
+  needsRezone: true,       // 是否需要重新分区
+  renderTime: 0,
+  params: {
+    quality: 0,
+    scale: 100,
+    preset: 'custom',
+    zoneCount: 4,
+    threshold: 0,
+    contrast: 1.0, // 转换后的值 (slider 100 → 1.0x)
+    closedEdge: false,
+    smooth: 7,
+    outline: 5,
+    bgMode: 'participate',
+    colorCount: 4,
+    outlineColor: '#1c1c1a',
+    shadowColor: '#1c1c1a',
+    grainDensity: 0,
+    partitionNoise: 1,
+    paperBrightness: 0,
+    grainSize: 2.6,
+    regOffset: 3.5,
+    outlineFade: 0.18,
+    outlineMix: 0,
+    grainCoverage: 0.18,
+    inkBleed: 0,
+    // 方案一：保边平滑（双边滤波强度 0-100）
+    edgeSmooth: 0,
+    // 方案三：碎片清理（小区域合并阈值 0-100）
+    debrisClean: 15,
+    // 方案五：背景标记
+    brushEnabled: false,
+    brushSize: 30,
+  },
+  bgMaskCanvas: null,    // 背景标记蒙版画布（与处理尺寸同大）
+  bgMaskCtx: null,
+  bgHasMask: false,       // 是否有标记数据
+};
+
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+// ===== 缓存常用 DOM 引用（避免每次渲染都查询 DOM） =====
+const dom = {
+  emptyState: document.getElementById('emptyState'),
+  canvasFrame: document.getElementById('canvasFrame'),
+  renderTimer: document.getElementById('renderTimer'),
+  statusBar: document.getElementById('statusBar'),
+  statusText: document.getElementById('statusText'),
+  timerText: document.getElementById('timerText'),
+  canvasInfo: document.getElementById('canvasInfo'),
+  fileName: document.getElementById('fileName'),
+  fileSize: document.getElementById('fileSize'),
+  fileThumb: document.getElementById('fileThumb'),
+  fileInfo: document.getElementById('fileInfo'),
+};
+
+// ===== 预计算调色板查找表（Uint8Array，避免每像素创建对象） =====
+// 当调色板或分区数变化时重新生成，渲染时直接查表
+let paletteLUT = null; // Uint32Array: zone → packed RGBA
+let paletteLUTKey = ''; // 用于检测是否需要重建
+
+function rebuildPaletteLUT() {
+  const key = state.palette.join(',') + '|' + state.params.colorCount;
+  if (key === paletteLUTKey && paletteLUT) return;
+  paletteLUTKey = key;
+
+  const paletteRaw = state.palette.slice(0, state.params.colorCount).map(hexToRgb);
+  // 按亮度排序：暗色在前
+  const paletteLuminance = paletteRaw.map(c => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b);
+  const sortedIdx = paletteLuminance.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v).map(o => o.i);
+  const sortedPalette = sortedIdx.map(i => paletteRaw[i]);
+
+  // 构建 LUT: zone → [r,g,b] 平铺在 Uint8Array 中
+  const k = state.params.zoneCount;
+  paletteLUT = new Uint8Array(k * 3);
+  for (let z = 0; z < k; z++) {
+    const pi = z < sortedPalette.length ? z : sortedPalette.length - 1;
+    const c = sortedPalette[pi];
+    paletteLUT[z * 3] = c.r;
+    paletteLUT[z * 3 + 1] = c.g;
+    paletteLUT[z * 3 + 2] = c.b;
+  }
+}
+
+// ===== Utility =====
+function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+function hexToRgb(hex){
+  const m=hex.replace('#','');
+  return {r:parseInt(m.substr(0,2),16),g:parseInt(m.substr(2,2),16),b:parseInt(m.substr(4,2),16)};
+}
+function rgbToHex(r,g,b){
+  return '#'+[r,g,b].map(x=>clamp(Math.round(x),0,255).toString(16).padStart(2,'0')).join('');
+}
+function lerp(a,b,t){return a+(b-a)*t}
+function dist2(r1,g1,b1,r2,g2,b2){const dr=r1-r2,dg=g1-g2,db=b1-b2;return dr*dr+dg*dg+db*db}
+
+// ===== Panel Toggle =====
+function togglePanel(id){
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// ===== Quality Selector =====
+function setQuality(q){
+  state.params.quality=q;
+  document.querySelectorAll('#qualityGroup .seg-btn').forEach(b=>{
+    b.classList.toggle('active',parseInt(b.dataset.q)===q);
+  });
+  // 质量改变时需要重新缩放源图片（影响最大处理尺寸）
+  if(state.sourceImage){
+    rescaleSource();
+  }
+}
+
+// ===== Upload Handling =====
+const uploadZone=document.getElementById('uploadZone');
+const fileInput=document.getElementById('fileInput');
+
+uploadZone.addEventListener('click',()=>fileInput.click());
+uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.classList.add('dragover')});
+uploadZone.addEventListener('dragleave',()=>uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop',e=>{
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change',e=>{
+  if(e.target.files[0])loadFile(e.target.files[0]);
+  // 重置 value，确保再次选择同一个文件时 change 事件也能触发
+  e.target.value='';
+});
+
+function loadFile(file){
+  if(!file.type.startsWith('image/'))return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      setSourceImage(img,file.name);
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function setSourceImage(img,fname){
+  // 重置所有运行时状态，避免上一张图片的残留状态影响新图片
+  isPeeking=false;
+  peekBtn.classList.remove('active');
+  processedSnapshot=null;
+  if(renderRAF){cancelAnimationFrame(renderRAF);renderRAF=null;}
+
+  state.sourceImage=img;
+  // 计算处理尺寸（根据缩放比例和质量）
+  const maxDim=[320,480,640,960][state.params.quality];
+  let w=img.naturalWidth,h=img.naturalHeight;
+  const scale=state.params.scale/100;
+  w=Math.round(w*scale);h=Math.round(h*scale);
+  if(Math.max(w,h)>maxDim*1.5){
+    const r=maxDim*1.5/Math.max(w,h);
+    w=Math.round(w*r);h=Math.round(h*r);
+  }
+  // 创建源 Canvas
+  const sc=document.createElement('canvas');
+  sc.width=w;sc.height=h;
+  const sctx=sc.getContext('2d');
+  sctx.drawImage(img,0,0,w,h);
+  state.sourceCanvas=sc;
+  state.sourceData=sctx.getImageData(0,0,w,h);
+
+  // 初始化背景蒙版画布（与处理尺寸同步）
+  initBgMask(w,h);
+
+  // 更新 UI
+  dom.fileInfo.style.display='flex';
+  dom.fileName.textContent=fname||'image';
+  dom.fileSize.textContent=`处理尺寸: ${w} × ${h}`;
+  // 显示缩略图
+  dom.fileThumb.src=img.src;
+  dom.fileThumb.style.display='block';
+  dom.emptyState.style.display='none';
+  dom.canvasFrame.style.display='block';
+  dom.renderTimer.style.display='flex';
+
+  state.needsRezone=true;
+  render();
+}
+
+// ===== Load Example =====
+function loadExample(){
+  const img=new Image();
+  img.crossOrigin='anonymous';
+  img.onload=()=>{
+    setSourceImage(img,'example-flower.jpg');
+  };
+  img.onerror=()=>{
+    // 如果加载失败，使用程序化生成的示例图片
+    createExampleImage();
+  };
+  // 使用 picsum 作为示例
+  img.src='https://picsum.photos/seed/vintage42/600/800.jpg';
+}
+
+function createExampleImage(){
+  // 生成一个简单的花朵示例图片
+  const sc=document.createElement('canvas');
+  sc.width=500;sc.height=600;
+  const sctx=sc.getContext('2d');
+  // 背景
+  sctx.fillStyle='#d4c5a9';
+  sctx.fillRect(0,0,500,600);
+  // 花朵
+  sctx.fillStyle='#f5f0e8';
+  sctx.beginPath();
+  sctx.ellipse(250,250,120,140,0,0,Math.PI*2);
+  sctx.fill();
+  sctx.fillStyle='#e8dcc8';
+  sctx.beginPath();
+  sctx.ellipse(250,250,60,70,0,0,Math.PI*2);
+  sctx.fill();
+  // 茎
+  sctx.strokeStyle='#5a7c4a';
+  sctx.lineWidth=12;
+  sctx.beginPath();
+  sctx.moveTo(250,380);
+  sctx.quadraticCurveTo(240,500,260,600);
+  sctx.stroke();
+  // 叶子
+  sctx.fillStyle='#6a8c5a';
+  sctx.beginPath();
+  sctx.ellipse(200,460,40,80,-0.3,0,Math.PI*2);
+  sctx.fill();
+  sctx.beginPath();
+  sctx.ellipse(310,500,35,70,0.3,0,Math.PI*2);
+  sctx.fill();
+
+  const img=new Image();
+  img.onload=()=>setSourceImage(img,'example-flower.png');
+  img.src=sc.toDataURL();
+}
+
+// ===== 方案五：背景蒙版处理 =====
+// 将标记区域的像素统一设为纯白色，让 K-Means 自然将它们归为一个分区
+function applyBgMaskToImageData(imageData, maskCanvas) {
+  const w = imageData.width, h = imageData.height;
+  const mctx = maskCanvas.getContext('2d');
+  const maskData = mctx.getImageData(0, 0, w, h).data;
+  const data = imageData.data;
+
+  for (let i = 0; i < w * h; i++) {
+    if (maskData[i * 4 + 3] > 10) {
+      // 标记区域 → 设为纯白，聚类时会自然归为一个分区
+      data[i * 4] = 255;
+      data[i * 4 + 1] = 255;
+      data[i * 4 + 2] = 255;
+    }
+  }
+}
+
+// 初始化/重置背景蒙版画布（与处理尺寸同步）
+function initBgMask(w, h) {
+  if (!state.bgMaskCanvas) {
+    state.bgMaskCanvas = document.createElement('canvas');
+  }
+  if (state.bgMaskCanvas.width !== w || state.bgMaskCanvas.height !== h) {
+    state.bgMaskCanvas.width = w;
+    state.bgMaskCanvas.height = h;
+    state.bgMaskCtx = state.bgMaskCanvas.getContext('2d');
+    state.bgHasMask = false;
+  }
+}
+
+// 清除背景蒙版
+function clearBgMask() {
+  if (state.bgMaskCtx) {
+    state.bgMaskCtx.clearRect(0, 0, state.bgMaskCanvas.width, state.bgMaskCanvas.height);
+    state.bgHasMask = false;
+    drawBrushOverlay();
+    state.needsRezone = true;
+    render();
+  }
+}
+
+// 在显示画布上绘制蒙版叠加层（红色半透明）
+function drawBrushOverlay() {
+  // 在画布上叠加蒙版显示（仅标记区域显示为红色半透明）
+  if (!state.bgHasMask || !state.bgMaskCanvas || !state.params.brushEnabled) return;
+  const w = canvas.width, h = canvas.height;
+  const mw = state.bgMaskCanvas.width, mh = state.bgMaskCanvas.height;
+
+  // 直接读取蒙版数据，在有标记的像素位置叠加红色
+  const mctx = state.bgMaskCanvas.getContext('2d');
+  const maskData = mctx.getImageData(0, 0, mw, mh);
+  const md = maskData.data;
+
+  // 获取当前画布数据
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const id = imgData.data;
+
+  const sx = mw / w, sy = mh / h;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const mx = Math.min(mw - 1, Math.floor(x * sx));
+      const my = Math.min(mh - 1, Math.floor(y * sy));
+      const mIdx = (my * mw + mx) * 4;
+      if (md[mIdx + 3] > 10) {
+        const idx = (y * w + x) * 4;
+        // 混合红色 (alpha=0.4)
+        id[idx] = id[idx] * 0.6 + 200 * 0.4;
+        id[idx + 1] = id[idx + 1] * 0.6 + 75 * 0.4;
+        id[idx + 2] = id[idx + 2] * 0.6 + 49 * 0.4;
+      }
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+// ===== 方案一：双边滤波（保边平滑） =====
+// 在保留边缘的同时平滑渐变区域，减少渐变产生的碎屑
+function bilateralFilter(imageData, strength) {
+  if (strength <= 0) return imageData;
+  const w = imageData.width, h = imageData.height;
+  const src = imageData.data;
+  const dst = new Uint8ClampedArray(src);
+
+  // 滤波半径和参数
+  const radius = Math.max(1, Math.round(strength / 25));
+  const sigmaSpace = radius * 1.5;     // 空间权重衰减
+  const sigmaColor = 30 + strength * 0.8; // 颜色权重衰减
+
+  // 预计算空间权重查表
+  const spaceWeights = new Float32Array((2 * radius + 1) * (2 * radius + 1));
+  let swIdx = 0;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const dist2 = dx * dx + dy * dy;
+      spaceWeights[swIdx++] = Math.exp(-dist2 / (2 * sigmaSpace * sigmaSpace));
+    }
+  }
+
+  const colorRange = 2 * sigmaColor * sigmaColor;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const r = src[idx], g = src[idx + 1], b = src[idx + 2];
+
+      let sumR = 0, sumG = 0, sumB = 0, sumW = 0;
+        let kernelIdx = 0;
+      const yStart = Math.max(0, y - radius);
+      const yEnd = Math.min(h - 1, y + radius);
+      const xStart = Math.max(0, x - radius);
+      const xEnd = Math.min(w - 1, x + radius);
+
+      for (let ny = yStart; ny <= yEnd; ny++) {
+        for (let nx = xStart; nx <= xEnd; nx++) {
+          const nidx = (ny * w + nx) * 4;
+          const nr = src[nidx], ng = src[nidx + 1], nb = src[nidx + 2];
+
+          // 颜色差异
+          const colorDiff = (r - nr) * (r - nr) + (g - ng) * (g - ng) + (b - nb) * (b - nb);
+          const colorWeight = Math.exp(-colorDiff / colorRange);
+
+          // 空间权重（用预计算的表，但要考虑裁剪后的偏移）
+          const dy = ny - y, dx = nx - x;
+          const spaceW = Math.exp(-(dx * dx + dy * dy) / (2 * sigmaSpace * sigmaSpace));
+
+          const wgt = colorWeight * spaceW;
+          sumR += nr * wgt;
+          sumG += ng * wgt;
+          sumB += nb * wgt;
+          sumW += wgt;
+        }
+      }
+
+      dst[idx] = sumR / sumW;
+      dst[idx + 1] = sumG / sumW;
+      dst[idx + 2] = sumB / sumW;
+      dst[idx + 3] = 255;
+    }
+  }
+
+  return new ImageData(dst, w, h);
+}
+
+// ===== 方案三：小区域合并 =====
+// 检测面积过小的分区碎片，合并到相邻的最大分区
+function mergeSmallRegions(zoneMap, w, h, threshold) {
+  if (threshold <= 0) return zoneMap;
+  const total = w * h;
+  // 最小区域面积占比（threshold 越大，合并越激进）
+  const minArea = Math.max(4, Math.round(total * threshold / 5000));
+
+  // 统计每个分区的面积
+  const zoneAreas = {};
+  for (let i = 0; i < total; i++) {
+    const z = zoneMap[i];
+    zoneAreas[z] = (zoneAreas[z] || 0) + 1;
+  }
+
+  // 找出小区域
+  const smallZones = new Set();
+  for (const z in zoneAreas) {
+    if (zoneAreas[z] < minArea) smallZones.add(parseInt(z));
+  }
+  if (smallZones.size === 0) return zoneMap;
+
+  // 对每个小区域像素，找到相邻的非小区域分区并合并
+  let result = new Uint8Array(zoneMap);
+  let changed = true;
+  let iterations = 0;
+
+  while (changed && iterations < 5) {
+    changed = false;
+    iterations++;
+    const newResult = new Uint8Array(result);
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        if (!smallZones.has(result[idx])) continue;
+
+        // 检查四邻域，找非小区域分区
+        const neighbors = {};
+        const checks = [
+          [x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]
+        ];
+        for (const [nx, ny] of checks) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nz = result[ny * w + nx];
+          if (!smallZones.has(nz)) {
+            neighbors[nz] = (neighbors[nz] || 0) + 1;
+          }
+        }
+
+        // 合并到出现次数最多的非小区域邻居
+        let bestZone = -1, bestCount = 0;
+        for (const z in neighbors) {
+          if (neighbors[z] > bestCount) {
+            bestCount = neighbors[z];
+            bestZone = parseInt(z);
+          }
+        }
+        if (bestZone >= 0) {
+          newResult[idx] = bestZone;
+          changed = true;
+        }
+      }
+    }
+    result = newResult;
+  }
+
+  // 如果还有剩余小区域（被其他小区域包围），合并到面积最大的分区
+  let maxZone = 0, maxArea = 0;
+  for (const z in zoneAreas) {
+    if (zoneAreas[z] > maxArea) { maxArea = zoneAreas[z]; maxZone = parseInt(z); }
+  }
+  for (let i = 0; i < total; i++) {
+    if (smallZones.has(result[i])) result[i] = maxZone;
+  }
+
+  return result;
+}
+
+// ===== 灰度分区（基于明暗关系的分区） =====
+// 将图像从 RGB 空间转到亮度空间，按 K-Means 对亮度聚类
+// 这样分区结果保留的是图像的明暗结构，而非颜色相似度
+function kmeansCluster(imageData,k,quality){
+  const data=imageData.data;
+  const w=imageData.width,h=imageData.height;
+  const total=w*h;
+
+  // 预计算每个像素的亮度（感知亮度公式）
+  const luminance=new Float32Array(total);
+  for(let i=0;i<total;i++){
+    const idx=i*4;
+    // ITU-R BT.601 亮度公式，近似人眼感知
+    luminance[i]=0.299*data[idx]+0.587*data[idx+1]+0.114*data[idx+2];
+  }
+
+  // 采样：高质量模式采样更多像素
+  const sampleRate=[0.15,0.3,0.5,1.0][quality];
+  const sampleStep=Math.max(1,Math.round(1/sampleRate));
+
+  // 收集采样像素的亮度值
+  const samples=[];
+  for(let y=0;y<h;y+=sampleStep){
+    for(let x=0;x<w;x+=sampleStep){
+      samples.push(luminance[y*w+x]);
+    }
+  }
+
+  // K-Means++ 初始化（在亮度空间）
+  const centroids=[];
+  const firstIdx=Math.floor(Math.random()*samples.length);
+  centroids.push(samples[firstIdx]);
+
+  for(let i=1;i<k;i++){
+    const dists=samples.map(s=>{
+      let minDist=Infinity;
+      for(const c of centroids){
+        const d=(s-c)*(s-c);
+        if(d<minDist)minDist=d;
+      }
+      return minDist;
+    });
+    const totalDist=dists.reduce((a,b)=>a+b,0);
+    if(totalDist===0){
+      centroids.push(samples[Math.floor(Math.random()*samples.length)]);
+      continue;
+    }
+    let r=Math.random()*totalDist;
+    let chosen=0;
+    for(let j=0;j<dists.length;j++){
+      r-=dists[j];
+      if(r<=0){chosen=j;break}
+    }
+    centroids.push(samples[chosen]);
+  }
+
+  // K-Means 迭代（一维亮度空间）
+  const maxIter=[5,8,12,20][quality];
+  const assignments=new Int32Array(samples.length);
+
+  for(let iter=0;iter<maxIter;iter++){
+    let changed=false;
+    for(let i=0;i<samples.length;i++){
+      const s=samples[i];
+      let minDist=Infinity,bestIdx=0;
+      for(let j=0;j<k;j++){
+        const d=(s-centroids[j])*(s-centroids[j]);
+        if(d<minDist){minDist=d;bestIdx=j}
+      }
+      if(assignments[i]!==bestIdx){assignments[i]=bestIdx;changed=true}
+    }
+    if(!changed&&iter>0)break;
+
+    // 更新中心
+    const sums=Array(k).fill(0).map(()=>[0,0]);
+    for(let i=0;i<samples.length;i++){
+      const a=assignments[i];
+      sums[a][0]+=samples[i];sums[a][1]++;
+    }
+    for(let j=0;j<k;j++){
+      if(sums[j][1]>0){
+        centroids[j]=sums[j][0]/sums[j][1];
+      }
+    }
+  }
+
+  // 排序 centroids：让 zone 0 = 最暗，zone k-1 = 最亮
+  const sortedIdx=centroids.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
+  const remap=new Int32Array(k);
+  sortedIdx.forEach((o,newIdx)=>{remap[o.i]=newIdx});
+  const sortedCentroids=sortedIdx.map(o=>o.v);
+
+  // 为每个像素分配分区（按亮度）
+  const zoneMap=new Uint8Array(total);
+  for(let i=0;i<total;i++){
+    const l=luminance[i];
+    let minDist=Infinity,bestIdx=0;
+    for(let j=0;j<k;j++){
+      const d=(l-sortedCentroids[j])*(l-sortedCentroids[j]);
+      if(d<minDist){minDist=d;bestIdx=j}
+    }
+    zoneMap[i]=bestIdx;
+  }
+
+  // 返回 centroids 为亮度值，外部可按亮度排序映射颜色
+  return {zoneMap,centroids:sortedCentroids.map(v=>[v,v,v])};
+}
+
+// ===== Region Smoothing =====
+function smoothZones(zoneMap,w,h,radius){
+  if(radius<=0)return zoneMap;
+  const result=new Uint8Array(zoneMap);
+  const r=Math.floor(radius);
+
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      // 多数投票平滑
+      const counts={};
+      let maxCount=0,bestZone=zoneMap[y*w+x];
+      for(let dy=-r;dy<=r;dy++){
+        const ny=y+dy;
+        if(ny<0||ny>=h)continue;
+        for(let dx=-r;dx<=r;dx++){
+          const nx=x+dx;
+          if(nx<0||nx>=w)continue;
+          const z=zoneMap[ny*w+nx];
+          counts[z]=(counts[z]||0)+1;
+          if(counts[z]>maxCount){maxCount=counts[z];bestZone=z}
+        }
+      }
+      result[y*w+x]=bestZone;
+    }
+  }
+  return result;
+}
+
+// ===== Edge Detection (Sobel on zone boundaries) =====
+function detectEdges(zoneMap,w,h){
+  const edges=new Uint8Array(w*h);
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      const idx=y*w+x;
+      const c=zoneMap[idx];
+      // 检查相邻区域是否不同
+      if(zoneMap[idx-1]!==c||zoneMap[idx+1]!==c||zoneMap[idx-w]!==c||zoneMap[idx+w]!==c){
+        edges[idx]=255;
+      }
+    }
+  }
+  return edges;
+}
+
+// ===== Dilate edges (outline thickness) =====
+function dilateEdges(edges,w,h,radius){
+  if(radius<=0)return edges;
+  const result=new Uint8Array(edges);
+  const r=Math.ceil(radius/2);
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      if(edges[y*w+x]>0)continue;
+      // 检查邻域
+      for(let dy=-r;dy<=r;dy++){
+        for(let dx=-r;dx<=r;dx++){
+          const ny=y+dy,nx=x+dx;
+          if(ny>=0&&ny<h&&nx>=0&&nx<w&&edges[ny*w+nx]>0){
+            result[y*w+x]=255;
+            break;
+          }
+        }
+        if(result[y*w+x]>0)break;
+      }
+    }
+  }
+  return result;
+}
+
+// ===== 闭合轮廓补全 =====
+// 检测断裂的边缘并补全：在边缘端点附近寻找其他边缘并连接
+// 通过形态学闭运算 + 端点连接实现
+function closeContours(edges,w,h){
+  const result=new Uint8Array(edges);
+
+  // 第一步：形态学闭运算（膨胀再腐蚀），填补小裂缝
+  const r=1;
+  // 膨胀
+  const dilated=new Uint8Array(w*h);
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      let found=false;
+      for(let dy=-r;dy<=r&&!found;dy++){
+        for(let dx=-r;dx<=r&&!found;dx++){
+          const ny=y+dy,nx=x+dx;
+          if(ny>=0&&ny<h&&nx>=0&&nx<w&&edges[ny*w+nx]>0){
+            found=true;
+          }
+        }
+      }
+      dilated[y*w+x]=found?255:0;
+    }
+  }
+  // 腐蚀
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      let allFound=true;
+      for(let dy=-r;dy<=r&&allFound;dy++){
+        for(let dx=-r;dx<=r&&allFound;dx++){
+          const ny=y+dy,nx=x+dx;
+          if(ny<0||ny>=h||nx<0||nx>=w){continue}
+          if(dilated[ny*w+nx]===0){allFound=false}
+        }
+      }
+      if(allFound){result[y*w+x]=255}
+    }
+  }
+
+  // 第二步：端点检测 + 连接
+  // 找到边缘端点（只有1个邻居的边缘像素），向最近的边缘方向延伸
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      const idx=y*w+x;
+      if(result[idx]===0)continue;
+
+      // 统计4邻域中的边缘数
+      let count=0;
+      const dirs=[];
+      if(result[idx-1]>0){count++;dirs.push([-1,0])}
+      if(result[idx+1]>0){count++;dirs.push([1,0])}
+      if(result[idx-w]>0){count++;dirs.push([0,-1])}
+      if(result[idx+w]>0){count++;dirs.push([0,1])}
+
+      // 端点：只有1个邻居
+      if(count===1){
+        // 找到延伸方向（反方向）
+        const [dx,dy]=dirs[0];
+        const ex=-dx,ey=-dy;
+
+        // 向延伸方向搜索最近的边缘像素
+        let found=false;
+        const maxSearch=12;
+        for(let step=2;step<=maxSearch&&!found;step++){
+          const tx=x+ex*step,ty=y+ey*step;
+          if(tx<0||tx>=w||ty<0||ty>=h)break;
+
+          // 检查目标点附近是否有边缘
+          for(let sy=-1;sy<=1&&!found;sy++){
+            for(let sx=-1;sx<=1&&!found;sx++){
+              const nx2=tx+sx,ny2=ty+sy;
+              if(nx2>=0&&nx2<w&&ny2>=0&&ny2<h){
+                if(result[ny2*w+nx2]>0){
+                  // 找到目标，画线连接
+                  drawLine(result,x,y,nx2,ny2,w,h);
+                  found=true;
+                }
+              }
+            }
+          }
+        }
+
+        // 如果直线方向没找到，在扇形范围内搜索
+        if(!found){
+          for(let step=2;step<=maxSearch&&!found;step++){
+            for(let angle=-2;angle<=2&&!found;angle++){
+              if(angle===0)continue;
+              const rad=angle*0.3;
+              const tx2=Math.round(x+(ex*Math.cos(rad)-ey*Math.sin(rad))*step);
+              const ty2=Math.round(y+(ex*Math.sin(rad)+ey*Math.cos(rad))*step);
+              if(tx2<0||tx2>=w||ty2<0||ty2>=h)continue;
+              if(result[ty2*w+tx2]>0){
+                drawLine(result,x,y,tx2,ty2,w,h);
+                found=true;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+// Bresenham 画线
+function drawLine(buf,x0,y0,x1,y1,w,h){
+  let dx=Math.abs(x1-x0),dy=Math.abs(y1-y0);
+  let sx=x0<x1?1:-1,sy=y0<y1?1:-1;
+  let err=dx-dy;
+  let x=x0,y=y0;
+  while(true){
+    if(x>=0&&x<w&&y>=0&&y<h){
+      buf[y*w+x]=255;
+    }
+    if(x===x1&&y===y1)break;
+    const e2=2*err;
+    if(e2>-dy){err-=dy;x+=sx}
+    if(e2<dx){err+=dx;y+=sy}
+  }
+}
+const noisePerm=new Uint8Array(512);
+(function initNoise(){
+  const p=new Uint8Array(256);
+  for(let i=0;i<256;i++)p[i]=i;
+  for(let i=255;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [p[i],p[j]]=[p[j],p[i]];
+  }
+  for(let i=0;i<512;i++)noisePerm[i]=p[i&255];
+})();
+
+function fade(t){return t*t*t*(t*(t*6-15)+10)}
+function grad(hash,x,y){
+  const h=hash&3;
+  const u=h<2?x:y;
+  const v=h<2?y:x;
+  return((h&1)?-u:u)+((h&2)?-v:v);
+}
+function noise2D(x,y){
+  const X=Math.floor(x)&255,Y=Math.floor(y)&255;
+  x-=Math.floor(x);y-=Math.floor(y);
+  const u=fade(x),v=fade(y);
+  const a=noisePerm[X]+Y,b=noisePerm[X+1]+Y;
+  return lerp(
+    lerp(grad(noisePerm[a],x,y),grad(noisePerm[b],x-1,y),u),
+    lerp(grad(noisePerm[a+1],x,y-1),grad(noisePerm[b+1],x-1,y-1),u),
+    v
+  );
+}
+
+// ===== Render Pipeline =====
+let renderRAF=null;
+function render(){
+  if(!state.sourceCanvas)return;
+  // 使用 requestAnimationFrame 防抖，避免同一帧内多次渲染
+  if(renderRAF)cancelAnimationFrame(renderRAF);
+  renderRAF=requestAnimationFrame(_render);
+}
+
+function _render(){
+  renderRAF=null;
+  if(!state.sourceCanvas)return;
+  // 如果正在查看原图，跳过渲染（松开后会自动恢复）
+  if(isPeeking){
+    // 清除缓存的快照，松开时重新渲染
+    processedSnapshot=null;
+    return;
+  }
+try{
+  const t0=performance.now();
+
+  const w=state.sourceCanvas.width;
+  const h=state.sourceCanvas.height;
+
+  // 检查是否需要重新分区
+  if(state.needsRezone){
+    updateStatus(true);
+    // 方案一：双边滤波预处理（减少渐变碎屑）
+    let processData=state.sourceData;
+    if(state.params.edgeSmooth>0){
+      processData=bilateralFilter(state.sourceData,state.params.edgeSmooth);
+    }
+    // 方案五：应用背景蒙版（将标记区域强制归为特殊分区）
+    if(state.bgHasMask&&state.bgMaskCanvas){
+      applyBgMaskToImageData(processData,state.bgMaskCanvas);
+    }
+    const result=kmeansCluster(processData,state.params.zoneCount,state.params.quality);
+    let zoneMap=result.zoneMap;
+    // 平滑
+    if(state.params.smooth>0){
+      zoneMap=smoothZones(zoneMap,w,h,state.params.smooth);
+    }
+    // 方案三：小区域合并（清理碎片）
+    if(state.params.debrisClean>0){
+      zoneMap=mergeSmallRegions(zoneMap,w,h,state.params.debrisClean);
+    }
+    state.zoneMap=zoneMap;
+    state.zoneColors=result.centroids.map(c=>({r:c[0],g:c[1],b:c[2]}));
+    state.needsRezone=false;
+  }
+
+  // 设置画布尺寸
+  canvas.width=w;
+  canvas.height=h;
+
+  // 创建输出 ImageData
+  const output=ctx.createImageData(w,h);
+  const outData=output.data;
+  const total=w*h;
+
+  // 缓存参数到局部变量（避免循环内反复属性查找）
+  const p=state.params;
+  const zoneMap=state.zoneMap;
+  const bgMode=p.bgMode;
+  const isTransparent=(bgMode==='transparent');
+  const isWhite=(bgMode==='white');
+
+  // 预计算调色板查找表（仅在调色板变化时重建）
+  rebuildPaletteLUT();
+
+  // 预计算对比度因子
+  const contrast=p.contrast;
+  const useContrast=(contrast!==1);
+  const contrastFactor=useContrast?(259*(contrast*255+255))/(255*(259-contrast*255)):1;
+
+  // ===== Pass 1: 填充分区颜色 + 对比度调整 + 透明背景标记 =====
+  // 将原来的3次遍历合并为1次
+  for(let i=0;i<total;i++){
+    const idx=i*4;
+    let r,g,b;
+
+    if(isWhite){
+      r=255;g=255;b=255;
+    }else if(isTransparent){
+      r=0;g=0;b=0; // 后面会设alpha=0
+    }else{
+      // 从 LUT 直接取值，无对象创建
+      const z=zoneMap[i];
+      const zIdx=z*3;
+      r=paletteLUT[zIdx];
+      g=paletteLUT[zIdx+1];
+      b=paletteLUT[zIdx+2];
+    }
+
+    // 对比度调整（合并到同一循环）
+    if(useContrast){
+      r=clamp(contrastFactor*(r-128)+128,0,255);
+      g=clamp(contrastFactor*(g-128)+128,0,255);
+      b=clamp(contrastFactor*(b-128)+128,0,255);
+    }
+
+    outData[idx]=r;
+    outData[idx+1]=g;
+    outData[idx+2]=b;
+    outData[idx+3]=255;
+  }
+
+  // ===== Pass 2: 边缘检测 + 轮廓绘制 =====
+  const edges=detectEdges(zoneMap,w,h);
+  let finalEdges=edges;
+  if(p.closedEdge){
+    finalEdges=closeContours(edges,w,h);
+  }
+  const dilated=dilateEdges(finalEdges,w,h,p.outline);
+
+  const outlineRgb=hexToRgb(p.outlineColor);
+  const outlineFade=p.outlineFade;
+  const outlineMix=p.outlineMix;
+  const oR=outlineRgb.r, oG=outlineRgb.g, oB=outlineRgb.b;
+
+  if(outlineFade>0||outlineMix>0){
+    // 有褪色或混色：需要 noise2D
+    for(let i=0;i<total;i++){
+      if(dilated[i]===0)continue;
+      const idx=i*4;
+      let alpha=1;
+      if(outlineFade>0){
+        const fadeNoise=Math.abs(noise2D((i%w)*0.1,Math.floor(i/w)*0.1));
+        alpha=1-outlineFade*Math.max(0,fadeNoise-0.3);
+      }
+      if(outlineMix>0){
+        const mixR=lerp(oR,outData[idx],outlineMix);
+        const mixG=lerp(oG,outData[idx+1],outlineMix);
+        const mixB=lerp(oB,outData[idx+2],outlineMix);
+        outData[idx]=mixR*alpha+outData[idx]*(1-alpha);
+        outData[idx+1]=mixG*alpha+outData[idx+1]*(1-alpha);
+        outData[idx+2]=mixB*alpha+outData[idx+2]*(1-alpha);
+      }else{
+        outData[idx]=oR*alpha+outData[idx]*(1-alpha);
+        outData[idx+1]=oG*alpha+outData[idx+1]*(1-alpha);
+        outData[idx+2]=oB*alpha+outData[idx+2]*(1-alpha);
+      }
+    }
+  }else{
+    // 快速路径：无褪色无混色，直接覆盖
+    for(let i=0;i<total;i++){
+      if(dilated[i]===0)continue;
+      const idx=i*4;
+      outData[idx]=oR;
+      outData[idx+1]=oG;
+      outData[idx+2]=oB;
+    }
+  }
+
+  // ===== Pass 3: 颗粒纹理 + 纸张明暗 + 透明背景 alpha =====
+  // 合并原来分散的多个循环
+  const grainD=p.grainDensity/100;
+  const grainS=p.grainSize;
+  const grainCov=p.grainCoverage;
+  const partNoise=p.partitionNoise;
+  const paperB=p.paperBrightness;
+  const hasGrain=(grainD>0||partNoise>0||paperB!==0||grainCov>0);
+
+  if(hasGrain||isTransparent){
+    const invScale=1/grainS;
+    for(let i=0;i<total;i++){
+      const idx=i*4;
+
+      if(hasGrain){
+        const x=i%w, y=(i/w)|0; // 用位运算替代 Math.floor
+        const n=noise2D(x*invScale*0.5,y*invScale*0.5);
+        const n2=Math.abs(noise2D(x*invScale*2,y*invScale*2));
+
+        if(paperB!==0){
+          outData[idx]=clamp(outData[idx]+paperB,0,255);
+          outData[idx+1]=clamp(outData[idx+1]+paperB,0,255);
+          outData[idx+2]=clamp(outData[idx+2]+paperB,0,255);
+        }
+        if(grainD>0){
+          const darkening=(n*0.5+0.5)*grainD*80;
+          outData[idx]=clamp(outData[idx]-darkening,0,255);
+          outData[idx+1]=clamp(outData[idx+1]-darkening,0,255);
+          outData[idx+2]=clamp(outData[idx+2]-darkening,0,255);
+        }
+        if(grainCov>0&&n2>1-grainCov){
+          const spot=grainCov*120;
+          outData[idx]=clamp(outData[idx]-spot,0,255);
+          outData[idx+1]=clamp(outData[idx+1]-spot,0,255);
+          outData[idx+2]=clamp(outData[idx+2]-spot,0,255);
+        }
+        if(partNoise>0){
+          const pn=(Math.random()-0.5)*partNoise*3;
+          outData[idx]=clamp(outData[idx]+pn,0,255);
+          outData[idx+1]=clamp(outData[idx+1]+pn,0,255);
+          outData[idx+2]=clamp(outData[idx+2]+pn,0,255);
+        }
+      }
+
+      // 透明背景处理（合并到同一循环）
+      if(isTransparent&&outData[idx]>240&&outData[idx+1]>240&&outData[idx+2]>240){
+        outData[idx+3]=0;
+      }
+    }
+  }
+
+  // ===== Pass 4: 套色偏移 =====
+  const regOff=p.regOffset;
+  if(regOff>0.1){
+    const offset=Math.max(1,Math.round(regOff));
+    const original=new Uint8ClampedArray(outData);
+
+    // 水平偏移
+    for(let y=0;y<h;y++){
+      const rowStart=y*w;
+      for(let x=0;x<w;x++){
+        const idx=(rowStart+x)*4;
+        const sx=clamp(x-offset,0,w-1);
+        const srcIdx=(rowStart+sx)*4;
+        const dr=Math.abs(original[idx]-original[srcIdx]);
+        const dg=Math.abs(original[idx+1]-original[srcIdx+1]);
+        const db=Math.abs(original[idx+2]-original[srcIdx+2]);
+        const diff=(dr+dg+db)/3;
+        if(diff>15){
+          const t=Math.min(diff/80,0.6);
+          outData[idx]=clamp(original[idx]*(1-t)+original[srcIdx]*t*0.7,0,255);
+          outData[idx+1]=clamp(original[idx+1]*(1-t)+original[srcIdx+1]*t*0.3,0,255);
+          outData[idx+2]=clamp(original[idx+2]*(1-t)+original[srcIdx+2]*t*0.9,0,255);
+        }
+      }
+    }
+
+    // 垂直偏移
+    const vOff=Math.round(offset*0.5);
+    for(let y=0;y<h;y++){
+      const rowStart=y*w;
+      const sy=clamp(y-vOff,0,h-1);
+      const srcRowStart=sy*w;
+      for(let x=0;x<w;x++){
+        const idx=(rowStart+x)*4;
+        const srcIdx=(srcRowStart+x)*4;
+        const dr=Math.abs(outData[idx]-original[srcIdx]);
+        const dg=Math.abs(outData[idx+1]-original[srcIdx+1]);
+        const db=Math.abs(outData[idx+2]-original[srcIdx+2]);
+        const diff=(dr+dg+db)/3;
+        if(diff>15){
+          const t=Math.min(diff/80,0.4);
+          outData[idx]=clamp(outData[idx]*(1-t)+original[srcIdx]*t*0.9,0,255);
+          outData[idx+1]=clamp(outData[idx+1]*(1-t)+original[srcIdx+1]*t*0.7,0,255);
+          outData[idx+2]=clamp(outData[idx+2]*(1-t)+original[srcIdx+2]*t*0.5,0,255);
+        }
+      }
+    }
+  }
+
+  // ===== Pass 5: 漏墨破损 =====
+  const inkB=p.inkBleed;
+  if(inkB>0){
+    const count=Math.floor(inkB*0.5);
+    for(let i=0;i<count;i++){
+      const cx=Math.random()*w;
+      const cy=Math.random()*h;
+      const r=Math.random()*inkB*0.3+2;
+      const r2=r*r;
+      for(let dy=-r;dy<=r;dy++){
+        for(let dx=-r;dx<=r;dx++){
+          const dist2=dx*dx+dy*dy;
+          if(dist2<=r2){
+            const px=Math.round(cx+dx),py=Math.round(cy+dy);
+            if(px>=0&&px<w&&py>=0&&py<h){
+              const idx=(py*w+px)*4;
+              const a=1-Math.sqrt(dist2)/r;
+              outData[idx]=clamp(outData[idx]-a*80,0,255);
+              outData[idx+1]=clamp(outData[idx+1]-a*80,0,255);
+              outData[idx+2]=clamp(outData[idx+2]-a*80,0,255);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 写入画布
+  ctx.putImageData(output,0,0);
+
+  // 方案五：如果启用了画笔或有蒙版，叠加显示
+  drawBrushOverlay();
+
+  // 更新计时器（使用缓存的 DOM 引用）
+  state.renderTime=performance.now()-t0;
+  dom.timerText.textContent=Math.round(state.renderTime)+' ms';
+  dom.canvasInfo.textContent=`${w} × ${h} · ${Math.round(state.renderTime)} ms`;
+
+  updateStatus(false);
+}catch(err){
+  console.error('渲染出错:',err);
+  dom.statusBar.style.display='flex';
+  dom.statusBar.classList.add('processing');
+  dom.statusText.textContent='渲染出错: '+err.message+'（请尝试重新上传图片）';
+  state.needsRezone=true;
+}
+}
+
+// ===== Status Update =====
+function updateStatus(processing){
+  dom.statusBar.style.display='flex';
+  if(processing){
+    dom.statusBar.classList.add('processing');
+    dom.statusText.textContent='分区参数已改变，正在自动重新分区...';
+  }else{
+    dom.statusBar.classList.remove('processing');
+    dom.statusText.textContent='处理完成，颜色和肌理参数会实时重绘';
+  }
+}
+
+// ===== Parameter Binding =====
+// format: 仅用于显示文本的格式化函数，不影响存储的数值
+// convert: 将滑块原始值转换为实际参数值的函数
+function bindSlider(sliderId,valId,paramKey,format,triggerRezone,convert){
+  const sld=document.getElementById(sliderId);
+  const val=valId?document.getElementById(valId):null;
+  // 对于非分区参数，用 rAF 去抖，避免拖动滑块时每帧都触发渲染
+  let rafId=null;
+  sld.addEventListener('input',()=>{
+    const raw=parseFloat(sld.value);
+    state.params[paramKey]=convert?convert(raw):raw;
+    if(val){
+      val.textContent=format?format(raw):raw;
+    }
+    if(triggerRezone)state.needsRezone=true;
+    // 缩放参数需要重新创建源画布
+    if(paramKey==='scale'){
+      if(rafId)cancelAnimationFrame(rafId);
+      rafId=requestAnimationFrame(()=>{rescaleSource();rafId=null});
+      return;
+    }
+    // 用 rAF 去抖渲染：连续拖动时只渲染最后一帧
+    if(rafId)cancelAnimationFrame(rafId);
+    rafId=requestAnimationFrame(()=>{render();rafId=null});
+  },{passive:true});
+}
+
+// 显示格式化函数（仅用于 UI 显示）
+function fmtScale(v){return v+'%'}
+function fmtContrast(v){return (v/100).toFixed(1)+'x'}
+function fmtGrainSize(v){return (v/10).toFixed(1)}
+function fmtRegOff(v){return (v/10).toFixed(1)}
+function fmtFloat2(v){return (v/100).toFixed(2)}
+
+// 值转换函数（滑块原始值 → 实际参数值）
+const cvScale=v=>v;          // 百分比直接用
+const cvContrast=v=>v/100;   // 50-200 → 0.5-2.0
+const cvGrainSize=v=>v/10;   // 5-80 → 0.5-8.0
+const cvRegOff=v=>v/10;      // 0-100 → 0-10
+const cvDiv100=v=>v/100;     // 0-100 → 0-1.0
+
+// 绑定所有滑块
+bindSlider('sldScale','valScale','scale',fmtScale,true,cvScale);
+bindSlider('sldZones','valZones','zoneCount',null,true);
+bindSlider('sldThreshold','valThreshold','threshold',null,true);
+bindSlider('sldContrast','valContrast','contrast',fmtContrast,false,cvContrast);
+bindSlider('sldSmooth','valSmooth','smooth',null,true);
+bindSlider('sldOutline','valOutline','outline',null,false);
+bindSlider('sldColorCount','valColorCount','colorCount',null,false);
+bindSlider('sldGrainD','valGrainD','grainDensity',null,false);
+bindSlider('sldNoise','valNoise','partitionNoise',null,false);
+bindSlider('sldPaperB','valPaperB','paperBrightness',null,false);
+bindSlider('sldGrainS','valGrainS','grainSize',fmtGrainSize,false,cvGrainSize);
+bindSlider('sldRegOff','valRegOff','regOffset',fmtRegOff,false,cvRegOff);
+bindSlider('sldFade','valFade','outlineFade',fmtFloat2,false,cvDiv100);
+bindSlider('sldMix','valMix','outlineMix',null,false,cvDiv100);
+bindSlider('sldCov','valCov','grainCoverage',fmtFloat2,false,cvDiv100);
+bindSlider('sldInk','valInk','inkBleed',null,false);
+
+// 方案一+三：保边平滑、碎片清理（修改后需要重新分区）
+bindSlider('sldEdgeSmooth','valEdgeSmooth','edgeSmooth',null,true);
+bindSlider('sldDebrisClean','valDebrisClean','debrisClean',null,true);
+
+// 方案五：笔刷大小
+document.getElementById('sldBrushSize').addEventListener('input',e=>{
+  const v=parseInt(e.target.value);
+  document.getElementById('valBrushSize').textContent=v;
+  state.params.brushSize=v;
+});
+
+// 初始化默认显示值
+document.getElementById('valContrast').textContent='1.0x';
+document.getElementById('valGrainS').textContent='2.6';
+document.getElementById('valRegOff').textContent='3.5';
+document.getElementById('valFade').textContent='0.18';
+document.getElementById('valCov').textContent='0.18';
+
+// 缩放源图片
+function rescaleSource(){
+  if(!state.sourceImage)return;
+  const img=state.sourceImage;
+  const maxDim=[320,480,640,960][state.params.quality];
+  let w=img.naturalWidth,h=img.naturalHeight;
+  const scale=state.params.scale/100;
+  w=Math.round(w*scale);h=Math.round(h*scale);
+  if(Math.max(w,h)>maxDim*1.5){
+    const r=maxDim*1.5/Math.max(w,h);
+    w=Math.round(w*r);h=Math.round(h*r);
+  }
+  const sc=document.createElement('canvas');
+  sc.width=w;sc.height=h;
+  const sctx=sc.getContext('2d');
+  sctx.drawImage(img,0,0,w,h);
+  state.sourceCanvas=sc;
+  state.sourceData=sctx.getImageData(0,0,w,h);
+  // 缩放后重置蒙版画布尺寸
+  initBgMask(w,h);
+  document.getElementById('fileSize').textContent=`处理尺寸: ${w} × ${h}`;
+  state.needsRezone=true;
+  render();
+}
+
+// 复选框
+document.getElementById('chkClosedEdge').addEventListener('change',e=>{
+  state.params.closedEdge=e.target.checked;
+  state.needsRezone=true;
+  render();
+});
+
+// 背景模式
+function onParamChange(){
+  state.params.bgMode=document.getElementById('selBgMode').value;
+  state.params.outlineColor=document.getElementById('clrOutline').value;
+  state.params.shadowColor=document.getElementById('clrShadow').value;
+  render();
+}
+
+// 预设切换
+function onPresetChange(val){
+  state.params.preset=val;
+  if(val==='custom')return;
+  const presets={
+    bright:['#ff6b6b','#4ecdc4','#ffe66d','#95e1d3','#f38181','#aa96da','#fcbad3','#ffffd2'],
+    vintage:['#c89968','#a07855','#d4c5a9','#8b7355','#6b5d4f','#4a4035','#e8dcc8','#b8a88a'],
+    mono:['#1a1a1a','#4a4a4a','#7a7a7a','#aaaaaa','#dadada','#2a2a2a','#6a6a6a','#9a9a9a'],
+    warm:['#c84b31','#e8833a','#f0c75e','#d4a574','#8b5a3c','#a0522d','#cd853f','#deb887'],
+    cool:['#2b5cb0','#4a90d9','#7bb3e0','#a8d0e8','#1a3a6a','#5a8ec0','#3a6ba5','#9ac4e8'],
+    earth:['#5a4a3a','#8b7355','#a08060','#c8a878','#6b5d4f','#4a3f35','#7a6b55','#9a8b75']
+  };
+  const colors=presets[val];
+  if(colors){
+    state.palette=colors;
+    state.params.colorCount=Math.min(state.params.colorCount,colors.length);
+    updateSwatches();
+    render();
+  }
+}
+
+// ===== Color Swatches =====
+function updateSwatches(){
+  const grid=document.getElementById('swatchGrid');
+  grid.innerHTML='';
+  const count=state.params.colorCount;
+  for(let i=0;i<count;i++){
+    const color=state.palette[i]||'#cccccc';
+    const div=document.createElement('div');
+    div.className='swatch';
+    div.style.background=color;
+    div.innerHTML=`<span class="sw-num">${i+1}</span><input type="color" value="${color}">`;
+    const input=div.querySelector('input');
+    input.addEventListener('input',e=>{
+      state.palette[i]=e.target.value;
+      div.style.background=e.target.value;
+      render();
+    });
+    grid.appendChild(div);
+  }
+}
+
+// ===== Random Colors =====
+function randomColors(){
+  // HSL 均匀分布生成互补色
+  const count=state.params.colorCount;
+  const colors=[];
+  const baseHue=Math.random()*360;
+  for(let i=0;i<count;i++){
+    const h=(baseHue+i*(360/count)+Math.random()*20)%360;
+    const s=40+Math.random()*40;
+    const l=30+Math.random()*45;
+    colors.push(hslToHex(h,s,l));
+  }
+  state.palette=colors;
+  updateSwatches();
+  render();
+}
+
+function hslToHex(h,s,l){
+  s/=100;l/=100;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=l-c/2;
+  let r,g,b;
+  if(h<60){r=c;g=x;b=0}
+  else if(h<120){r=x;g=c;b=0}
+  else if(h<180){r=0;g=c;b=x}
+  else if(h<240){r=0;g=x;b=c}
+  else if(h<300){r=x;g=0;b=c}
+  else{r=c;g=0;b=x}
+  return rgbToHex((r+m)*255,(g+m)*255,(b+m)*255);
+}
+
+// ===== Resegment =====
+function resegment(){
+  state.needsRezone=true;
+  render();
+}
+
+// ===== Color Count Slider Special Binding =====
+document.getElementById('sldColorCount').addEventListener('input',e=>{
+  const v=parseInt(e.target.value);
+  document.getElementById('valColorCount').textContent=v;
+  state.params.colorCount=v;
+  // 确保调色板有足够的颜色
+  while(state.palette.length<v){
+    state.palette.push(hslToHex(Math.random()*360,50+Math.random()*30,40+Math.random()*30));
+  }
+  updateSwatches();
+  render();
+});
+
+// ===== Export PNG =====
+function exportPNG(scale){
+  if(!state.sourceCanvas){
+    alert('请先上传图片');
+    return;
+  }
+  const w=canvas.width*scale;
+  const h=canvas.height*scale;
+
+  // 创建高分辨率画布
+  const expCanvas=document.createElement('canvas');
+  expCanvas.width=w;
+  expCanvas.height=h;
+  const expCtx=expCanvas.getContext('2d');
+  expCtx.imageSmoothingEnabled=false;
+  expCtx.drawImage(canvas,0,0,w,h);
+
+  // 下载
+  expCanvas.toBlob(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`vintage-texture-${scale}x-${Date.now()}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },'image/png');
+}
+
+// ===== Welcome / Help Modal =====
+function showWelcome(){
+  document.getElementById('welcomeModal').classList.add('visible');
+}
+function closeWelcome(){
+  const cb=document.getElementById('dontShowAgain');
+  if(cb&&cb.checked){
+    try{localStorage.setItem('vtc_hideWelcome','1');}catch(e){}
+  }
+  document.getElementById('welcomeModal').classList.remove('visible');
+}
+function showHelp(){
+  document.getElementById('helpModal').classList.add('visible');
+}
+function closeHelp(){
+  document.getElementById('helpModal').classList.remove('visible');
+}
+// 点击遮罩关闭
+document.getElementById('welcomeModal').addEventListener('click',e=>{
+  if(e.target.id==='welcomeModal')closeWelcome();
+});
+document.getElementById('helpModal').addEventListener('click',e=>{
+  if(e.target.id==='helpModal')closeHelp();
+});
+// ESC 关闭
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    closeWelcome();
+    closeHelp();
+  }
+});
+
+// ===== Peek Original Image (按住查看原图) =====
+const peekBtn=document.getElementById('peekBtn');
+let isPeeking=false;
+let processedSnapshot=null; // 缓存处理后的画布快照
+
+function startPeek(){
+  if(!state.sourceImage||isPeeking)return;
+  isPeeking=true;
+  peekBtn.classList.add('active');
+  // 缓存当前处理后的画面
+  if(canvas.width>0&&canvas.height>0){
+    processedSnapshot=ctx.getImageData(0,0,canvas.width,canvas.height);
+  }
+  // 绘制原图（按画布尺寸缩放）
+  const w=canvas.width,h=canvas.height;
+  ctx.clearRect(0,0,w,h);
+  ctx.drawImage(state.sourceImage,0,0,w,h);
+  // 在画布上叠加"原图预览"标记
+  ctx.save();
+  ctx.fillStyle='rgba(200,75,49,.85)';
+  ctx.fillRect(0,0,90,22);
+  ctx.fillStyle='#fff';
+  ctx.font='600 11px "JetBrains Mono",monospace';
+  ctx.textBaseline='middle';
+  ctx.fillText('ORIGINAL',8,12);
+  ctx.restore();
+}
+
+function endPeek(){
+  if(!isPeeking)return;
+  isPeeking=false;
+  peekBtn.classList.remove('active');
+  // 恢复处理后的画面
+  if(processedSnapshot){
+    ctx.putImageData(processedSnapshot,0,0);
+    processedSnapshot=null;
+  }else{
+    render();
+  }
+}
+
+// 鼠标事件
+peekBtn.addEventListener('mousedown',e=>{e.preventDefault();startPeek()});
+peekBtn.addEventListener('mouseup',endPeek);
+peekBtn.addEventListener('mouseleave',endPeek);
+// 触摸事件（移动端）
+peekBtn.addEventListener('touchstart',e=>{e.preventDefault();startPeek()},{passive:false});
+peekBtn.addEventListener('touchend',e=>{e.preventDefault();endPeek()});
+peekBtn.addEventListener('touchcancel',endPeek);
+// 键盘支持：按住空格键也能查看原图（松开恢复）
+let spaceDown=false;
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!spaceDown&&state.sourceImage){
+    const tag=e.target.tagName;
+    if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA')return;
+    e.preventDefault();
+    spaceDown=true;
+    startPeek();
+  }
+});
+document.addEventListener('keyup',e=>{
+  if(e.code==='Space'&&spaceDown){
+    spaceDown=false;
+    endPeek();
+  }
+});
+
+// ===== 方案五：背景标记画笔交互 =====
+let isDrawing=false;
+
+function toggleBrush(enabled){
+  state.params.brushEnabled=enabled;
+  document.getElementById('brushControls').style.display=enabled?'block':'none';
+  // 切换画布鼠标样式
+  canvas.style.cursor=enabled?'crosshair':'default';
+  // 重绘以显示/隐藏蒙版叠加
+  drawBrushOverlay();
+  if(!enabled){
+    // 关闭画笔时不需要重新渲染，但如果关掉后没蒙版了就正常显示
+    render();
+  }
+}
+
+// 将显示坐标映射到蒙版画布坐标
+function canvasToMaskCoords(cx,cy){
+  const rect=canvas.getBoundingClientRect();
+  // 显示尺寸 → 画布实际尺寸
+  const sx=canvas.width/rect.width;
+  const sy=canvas.height/rect.height;
+  const mx=(cx-rect.left)*sx;
+  const my=(cy-rect.top)*sy;
+  // 画布尺寸 → 蒙版尺寸（通常一致，但缩放后可能不同）
+  if(!state.bgMaskCanvas)return{x:0,y:0};
+  const mxs=state.bgMaskCanvas.width/canvas.width;
+  const mys=state.bgMaskCanvas.height/canvas.height;
+  return{x:mx*mxs,y:my*mys};
+}
+
+// 在蒙版画布上画圆
+function paintMask(mx,my){
+  if(!state.bgMaskCtx)return;
+  const r=state.params.brushSize/2;
+  state.bgMaskCtx.fillStyle='rgba(255,255,255,1)';
+  state.bgMaskCtx.beginPath();
+  state.bgMaskCtx.arc(mx,my,r,0,Math.PI*2);
+  state.bgMaskCtx.fill();
+  state.bgHasMask=true;
+}
+
+// 鼠标事件
+canvas.addEventListener('mousedown',e=>{
+  if(!state.params.brushEnabled)return;
+  isDrawing=true;
+  const{x,y}=canvasToMaskCoords(e.clientX,e.clientY);
+  paintMask(x,y);
+  drawBrushOverlay();
+});
+canvas.addEventListener('mousemove',e=>{
+  if(!isDrawing||!state.params.brushEnabled)return;
+  const{x,y}=canvasToMaskCoords(e.clientX,e.clientY);
+  paintMask(x,y);
+  drawBrushOverlay();
+});
+canvas.addEventListener('mouseup',()=>{
+  if(isDrawing){
+    isDrawing=false;
+    // 画完后标记需要重新分区
+    state.needsRezone=true;
+    render();
+  }
+});
+canvas.addEventListener('mouseleave',()=>{
+  if(isDrawing){
+    isDrawing=false;
+    state.needsRezone=true;
+    render();
+  }
+});
+
+// 触摸事件
+canvas.addEventListener('touchstart',e=>{
+  if(!state.params.brushEnabled)return;
+  e.preventDefault();
+  isDrawing=true;
+  const t=e.touches[0];
+  const{x,y}=canvasToMaskCoords(t.clientX,t.clientY);
+  paintMask(x,y);
+  drawBrushOverlay();
+},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  if(!isDrawing||!state.params.brushEnabled)return;
+  e.preventDefault();
+  const t=e.touches[0];
+  const{x,y}=canvasToMaskCoords(t.clientX,t.clientY);
+  paintMask(x,y);
+  drawBrushOverlay();
+},{passive:false});
+canvas.addEventListener('touchend',e=>{
+  if(isDrawing){
+    isDrawing=false;
+    state.needsRezone=true;
+    render();
+  }
+});
+
+// ===== 全局错误捕获 =====
+window.addEventListener('error',e=>{
+  console.error('全局错误:',e.error||e.message);
+});
+
+// ===== Init =====
+updateSwatches();
+
+// 首次访问显示欢迎弹窗
+try{
+  if(!localStorage.getItem('vtc_hideWelcome')){
+    setTimeout(showWelcome,300);
+  }
+}catch(e){
+  setTimeout(showWelcome,300);
+}
+// 自动折叠纸张参数面板（初始让界面更简洁）
+// document.getElementById('panelPaper').classList.add('collapsed');
+
+</script>
+</body>
+</html>
